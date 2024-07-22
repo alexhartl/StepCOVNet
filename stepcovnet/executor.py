@@ -35,6 +35,7 @@ class InferenceExecutor(AbstractExecutor):
         self.verbose = verbose
         self.binary_arrow_encoder = encoder.BinaryArrowEncoder()
         self.label_arrow_encoder = encoder.LabelArrowEncoder()
+        self.onehot_arrow_encoder = encoder.OneHotArrowEncoder()
 
     def execute(self, input_data: inputs.InferenceInput) -> list[str]:
         arrow_input = input_data.arrow_input_init
@@ -55,24 +56,25 @@ class InferenceExecutor(AbstractExecutor):
             audio_input = utils.apply_scalers(
                 features=audio_features, scalers=input_data.config.scalers
             )
-            binary_arrows_probs = inferer(
-                arrow_input=tf.convert_to_tensor(arrow_input),
-                arrow_mask=tf.convert_to_tensor(arrow_mask),
-                audio_input=tf.convert_to_tensor(audio_input),
+            onehot_arrows_probs = inferer(
+                arrow_input=tf.convert_to_tensor(arrow_input.astype(np.int32)),
+                arrow_mask=tf.convert_to_tensor(arrow_mask.astype(np.int32)),
+                audio_input=tf.convert_to_tensor(audio_input[None]),
             )
-            binary_arrows_probs = (
-                next(iter(binary_arrows_probs.values())).numpy().ravel()
+            onehot_arrows_probs = (
+                next(iter(onehot_arrows_probs.values())).numpy().ravel()
             )
-            binary_encoded_arrows = []
-            for i in range(constants.NUM_ARROWS):
-                binary_arrow_prob = binary_arrows_probs[
-                    constants.NUM_ARROW_TYPES * i : constants.NUM_ARROW_TYPES * (i + 1)
-                ]
-                encoded_arrow = np.random.choice(
-                    constants.NUM_ARROW_TYPES, 1, p=binary_arrow_prob
-                )[0]
-                binary_encoded_arrows.append(str(encoded_arrow))
-            arrows = "".join(binary_encoded_arrows)
+            arrows = self.onehot_arrow_encoder.decode( np.argmax(onehot_arrows_probs) )
+            # binary_encoded_arrows = []
+            # for i in range(constants.NUM_ARROWS):
+            #     binary_arrow_prob = binary_arrows_probs[
+            #         constants.NUM_ARROW_TYPES * i : constants.NUM_ARROW_TYPES * (i + 1)
+            #     ]
+            #     encoded_arrow = np.random.choice(
+            #         constants.NUM_ARROW_TYPES, 1, p=binary_arrow_prob
+            #     )[0]
+            #     binary_encoded_arrows.append(str(encoded_arrow))
+            # arrows = "".join(binary_encoded_arrows)
             pred_arrows.append(arrows)
             # Roll and append predicted arrow to input to predict next sample
             arrow_input = np.roll(arrow_input, -1, axis=0)
