@@ -3,9 +3,11 @@ import os
 from abc import ABC, abstractmethod
 
 import joblib
+from tqdm import tqdm
 import numpy as np
 import tensorflow as tf
 from tensorflow.python.keras import callbacks
+from scipy.signal import find_peaks
 
 from stepcovnet import (
     config,
@@ -16,6 +18,7 @@ from stepcovnet import (
     constants,
     tf_config,
     utils,
+    data
 )
 
 
@@ -41,13 +44,28 @@ class InferenceExecutor(AbstractExecutor):
         arrow_input = input_data.arrow_input_init
         arrow_mask = input_data.arrow_mask_init
         pred_arrows = []
+        tokenizer = (
+            None if input_data.config.tokenizer_name is None else data.Tokenizers[input_data.config.tokenizer_name].value
+        )
+        lookback = input_data.config.lookback
         inferer = self.stepcovnet_model.model.signatures["serving_default"]
-        for audio_features_index in range(len(input_data.audio_features)):
+
+        # whether we feed detection back into the network. unfortunately,
+        # this does not seem to give good results currently
+        autoregressive_input = False
+        
+        all_predictions = np.ones((len(input_data.audio_features), constants.NUM_ARROW_COMBS), dtype=np.float32)
+        empty_predictions_detrended = np.empty(len(input_data.audio_features), dtype=np.float32)
+        audio_features_index = 0
+        last_nonempty_frame = -1
+        pbar = tqdm(total=len(input_data.audio_features) - lookback//2)
+        while audio_features_index < len(input_data.audio_features) - lookback//2:
+            pbar.update(audio_features_index - pbar.n)
             audio_features = utils.get_samples_ngram_with_mask(
                 samples=input_data.audio_features[
                     max(
-                        audio_features_index + 1 - input_data.config.lookback, 0
-                    ) : audio_features_index
+                        audio_features_index + 1 - lookback//2, 0
+                    ) : audio_features_index + lookback//2
                     + 1
                 ],
                 lookback=input_data.config.lookback,
@@ -64,28 +82,44 @@ class InferenceExecutor(AbstractExecutor):
             onehot_arrows_probs = (
                 next(iter(onehot_arrows_probs.values())).numpy().ravel()
             )
-            arrows = self.onehot_arrow_encoder.decode( np.argmax(onehot_arrows_probs) )
-            # binary_encoded_arrows = []
-            # for i in range(constants.NUM_ARROWS):
-            #     binary_arrow_prob = binary_arrows_probs[
-            #         constants.NUM_ARROW_TYPES * i : constants.NUM_ARROW_TYPES * (i + 1)
-            #     ]
-            #     encoded_arrow = np.random.choice(
-            #         constants.NUM_ARROW_TYPES, 1, p=binary_arrow_prob
-            #     )[0]
-            #     binary_encoded_arrows.append(str(encoded_arrow))
-            # arrows = "".join(binary_encoded_arrows)
+            all_predictions[audio_features_index] = onehot_arrows_probs
+            arrows = '0000'
+            if audio_features_index > 50:
+                empty_predictions_detrended[audio_features_index] = \
+                    onehot_arrows_probs[0] - np.mean(all_predictions[max(0,audio_features_index-100):audio_features_index,0])
+            if audio_features_index > 70:
+                # how many frames we need detection to be distant from each other
+                min_distance = 5
+                peaks,_ = find_peaks(-empty_predictions_detrended[audio_features_index-20:audio_features_index], height=input_data.config.threshold, distance=min_distance)
+                peaks += audio_features_index-20
+                peaks = peaks[peaks > last_nonempty_frame+min_distance]
+                if peaks.size:
+                    audio_features_index = last_nonempty_frame = np.min(peaks)
+                    pred_arrows = pred_arrows[:audio_features_index]
+                    p = all_predictions[audio_features_index,1:].copy()
+                    p /= p.sum()
+                    arrows = self.onehot_arrow_encoder.decode(1+np.random.choice(len(p), p=p))
+
             pred_arrows.append(arrows)
-            # Roll and append predicted arrow to input to predict next sample
-            arrow_input = np.roll(arrow_input, -1, axis=0)
-            arrow_mask = np.roll(arrow_mask, -1, axis=0)
-            arrow_input[0][-1] = self.label_arrow_encoder.encode(arrows)
-            arrow_mask[0][-1] = 1
+            if tokenizer is not None:
+                tokenizer_input = pred_arrows[-lookback:]
+                if not autoregressive_input:
+                    tokenizer_input = ['0000'] * len(tokenizer_input)
+                arrow_input = tokenizer(' '.join(tokenizer_input), return_tensors="tf", add_prefix_space=True)["input_ids"].numpy().astype(np.int32)
+                arrow_mask = np.ones_like(arrow_input)
+            else:
+                # Roll and append predicted arrow to input to predict next sample
+                arrow_input = np.roll(arrow_input, -1, axis=0)
+                arrow_mask = np.roll(arrow_mask, -1, axis=0)
+                arrow_input[0][-1] = self.label_arrow_encoder.encode(arrows)
+                arrow_mask[0][-1] = 1
             if self.verbose and audio_features_index % 100 == 0:
                 print(
                     "[%d/%d] Samples generated"
                     % (audio_features_index, len(input_data.audio_features))
                 )
+            audio_features_index += 1
+        pbar.close()
         return pred_arrows
 
 
