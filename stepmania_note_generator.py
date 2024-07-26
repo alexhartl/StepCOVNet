@@ -60,6 +60,7 @@ def generate_notes(
     output_path: str,
     tmp_dir: str,
     stepcovnet_model: model.StepCOVNetModel,
+    threshold: float,
     verbose_int: int,
 ):
     verbose = True if verbose_int == 1 else False
@@ -67,6 +68,7 @@ def generate_notes(
     dataset_config = stepcovnet_model.metadata["dataset_config"]
     lookback = stepcovnet_model.metadata["training_config"]["lookback"]
     difficulty = stepcovnet_model.metadata["training_config"]["difficulty"]
+    tokenizer_name = stepcovnet_model.metadata["training_config"]["tokenizer_name"]
     sample_frequency = dataset_config["SAMPLE_RATE"]
     hopsize = dataset_config["STFT_HOP_LENGTH_SECONDS"]
     audio_files_path = join(tmp_dir, "wav/")
@@ -109,6 +111,8 @@ def generate_notes(
             dataset_config=dataset_config,
             lookback=lookback,
             difficulty=difficulty,
+            tokenizer_name=tokenizer_name,
+            threshold=threshold,
             scalers=scalers,
         )
         inference_input = inputs.InferenceInput(inference_config=inference_config)
@@ -130,7 +134,7 @@ def generate_notes(
 
 
 def stepmania_note_generator(
-    input_path: str, output_path: str, model_path: str, verbose_int: int = 0
+    input_path: str, output_path: str, model_path: str, threshold: float, verbose_int: int = 0
 ):
     start_time = time.time()
     if verbose_int not in [0, 1]:
@@ -172,7 +176,7 @@ def stepmania_note_generator(
                 print(
                     "Starting audio to txt generation\n-----------------------------------------\n"
                 )
-            generate_notes(output_path, tmp_dir, stepcovnet_model, verbose_int)
+            generate_notes(output_path, tmp_dir, stepcovnet_model, threshold, verbose_int)
     else:
         raise FileNotFoundError(
             "Audio file(s) path %s not found" % os.path.abspath(input_path)
@@ -202,6 +206,13 @@ if __name__ == "__main__":
         required=True,
     )
     parser.add_argument(
+        "-t",
+        "--threshold",
+        type=float,
+        default=0.02,
+        help="Confidence threshold for note detection (default 0.02)",
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         type=int,
@@ -211,4 +222,4 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    stepmania_note_generator(args.input, args.output, args.model, args.verbose)
+    stepmania_note_generator(args.input, args.output, args.model, args.threshold, args.verbose)

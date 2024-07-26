@@ -46,6 +46,8 @@ class InferenceConfig(AbstractConfig):
         dataset_config: dict,
         lookback: int,
         difficulty: str,
+        tokenizer_name: str,
+        threshold: float,
         scalers: list[preprocessing.StandardScaler] | None = None,
     ):
         super(InferenceConfig, self).__init__(
@@ -54,6 +56,8 @@ class InferenceConfig(AbstractConfig):
         self.audio_path = audio_path
         self.file_name = file_name
         self.scalers = scalers
+        self.tokenizer_name = tokenizer_name
+        self.threshold = threshold
 
 
 class TrainingConfig(AbstractConfig):

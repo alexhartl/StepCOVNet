@@ -135,7 +135,11 @@ class GPT2ArrowModel(ArrowModel):
         model_output = gp2_model.transformer(arrow_input, attention_mask=arrow_mask)[0]
         # GPT-2 model returns feature maps for avg/max pooling. Using LSTM for additional feature extraction.
         # Might be able to replace this with another method in the future
-        return GlobalMaxPool1D()(model_output)
+        return LSTM(
+                512,
+                return_sequences=False,
+                kernel_initializer=initializers.GlorotUniform(42),
+            )(model_output)
 
 
 class PretrainedModels(object):
@@ -448,3 +452,4 @@ class VggishAudioModel(AudioModel):
                 kernel_initializer=initializers.GlorotUniform(42),
             )
         )(model_output)
+    

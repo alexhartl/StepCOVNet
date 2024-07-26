@@ -17,8 +17,8 @@ class TrainingHyperparameters:
         metrics.AUC(curve="PR", name="pr_auc"),
         metrics.AUC(name="auc"),
     ]
-    DEFAULT_LOSS = losses.CategoricalCrossentropy(label_smoothing=0.05)
-    DEFAULT_OPTIMIZER = optimizers.Nadam(beta_1=0.99)
+    DEFAULT_LOSS = lambda self, y_true, y_pred: losses.categorical_crossentropy(y_true, y_pred)**3
+    DEFAULT_OPTIMIZER = optimizers.Adam()
     DEFAULT_EPOCHS = 15
     DEFAULT_PATIENCE = 3
     DEFAULT_BATCH_SIZE = 32
@@ -116,6 +116,8 @@ class TrainingFeatureGenerator(object):
                     self.warmup_countdown = max(self.warmup_countdown - 1, 0)
                 # We only return partial batches when at the end of the training data. Otherwise, use start of next song
                 # to append data to the batch.
+                # shift song index by lookback//2 to see future audio frames
+                song_end_index -= self.lookback//2
                 while len(features["y_batch"]) == 0 or self.song_index < len(
                     self.train_indexes
                 ):
@@ -133,23 +135,34 @@ class TrainingFeatureGenerator(object):
                         start_index - self.lookback, song_start_index
                     )
                     lookback_padding_added = start_index - lookback_index_padding_start
+                    arrow_lookback = self.lookback # we might make arrow_lookback different from lookback at some point
+                    arrow_lookback_index_padding_start = max(
+                        start_index - arrow_lookback, song_start_index
+                    )
+                    arrow_lookback_padding_added = start_index - arrow_lookback_index_padding_start
                     if self.tokenizer is not None:
                         arrows = dataset.string_arrows[
-                            lookback_index_padding_start:end_index
+                            arrow_lookback_index_padding_start:end_index
                         ]
+
+                        if self.rng.random() > .5:
+                            # also train without arrows, as this is an important
+                            # scenario in particular at the beginning of the file
+                            arrows = np.array([b'0000']*len(arrows))
+
                         arrow_features, arrow_mask = self.get_tokenized_arrow_features(
-                            arrows, mask_padding_value, lookback_padding_added
+                            arrows, mask_padding_value, arrow_lookback_padding_added, arrow_lookback
                         )
                     else:
                         arrows = dataset.label_encoded_arrows[
-                            lookback_index_padding_start:end_index
+                            arrow_lookback_index_padding_start:end_index
                         ]
                         arrow_features, arrow_mask = self.get_arrow_features(
-                            arrows, mask_padding_value, lookback_padding_added
+                            arrows, mask_padding_value, arrow_lookback_padding_added
                         )
 
                     audio_data = dataset.features[
-                        lookback_index_padding_start:end_index
+                        lookback_index_padding_start+self.lookback//2:end_index+self.lookback//2
                     ]
                     audio_features = self.get_audio_features(
                         audio_data, lookback_padding_added
@@ -242,11 +255,11 @@ class TrainingFeatureGenerator(object):
         return features
 
     def get_tokenized_arrow_features(
-        self, arrows, mask_padding_value, lookback_padding_added
+        self, arrows, mask_padding_value, lookback_padding_added, lookback
     ):
         arrow_features, arrow_mask = utils.get_samples_ngram_with_mask(
             arrows,
-            self.lookback,
+            lookback,
             reshape=True,
             sample_padding_value="0000",
             mask_padding_value=mask_padding_value,
