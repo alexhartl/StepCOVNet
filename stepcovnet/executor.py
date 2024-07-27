@@ -6,7 +6,7 @@ import joblib
 from tqdm import tqdm
 import numpy as np
 import tensorflow as tf
-from tensorflow.python.keras import callbacks
+from tensorflow.keras import callbacks
 from scipy.signal import find_peaks
 
 from stepcovnet import (
