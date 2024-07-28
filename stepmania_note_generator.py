@@ -45,10 +45,10 @@ def get_timings_arrow_mapping(pred_arrows: Sequence[str], hopsize: float) -> dic
 
 
 def save_pred_arrows(
-    timings_arrows_mapping: dict, output_path: str, file_name: str, bpm: float
+    timings_arrows_mapping: dict, output_path: str, file_name: str, bpm: float, difficulty: str
 ):
-    header = "TITLE " + str(file_name) + "\n" + "BPM " + str(bpm) + "\n" + "NOTES \n"
-    output_data = ""
+    header = f'TITLE {file_name}\nBPM {bpm}\nNOTES\n'
+    output_data = f'DIFFICULTY {difficulty.title()}\n'
     for timing, arrow in timings_arrows_mapping.items():
         output_data += str(arrow) + " " + str(timing) + "\n"
     utils.write_file(
@@ -127,6 +127,7 @@ def generate_notes(
             output_path=output_path,
             file_name=audio_file_name,
             bpm=bpm,
+            difficulty=difficulty,
         )
         end_time = time.time()
         if verbose:

@@ -34,7 +34,7 @@ def write_file(output_path: str, output_data: str, header: str = ""):
 
 def get_bpm(wav_file_path: str) -> float:
     y, sr = librosa.load(wav_file_path)
-    return librosa.beat.beat_track(y=y, sr=sr)[0]
+    return float(librosa.beat.beat_track(y=y, sr=sr)[0])
 
 
 def feature_reshape_down(features: np.ndarray[float], order: str = "C") -> np.ndarray:
